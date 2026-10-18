@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>選曲機能付き音ゲー</title>
+  <style>
+    body {
+      background-color: #121214;
+      color: #fff;
+      font-family: sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 2rem;
+      letter-spacing: 2px;
+    }
+    #file-input-container {
+      margin-bottom: 20px;
+      padding: 15px 30px;
+      border: 2px dashed #444;
+      background: #1a1a1e;
+      border-radius: 8px;
+      text-align: center;
+    }
+    /* 左右に分割するメインコンテナ */
+    .main-container {
+      display: flex;
+      gap: 30px;
+      max-width: 900px;
+      width: 100%;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    /* 左側：選曲リストエリア */
+    .song-list-container {
+      width: 300px;
+      background: #1a1a1e;
+      border: 2px solid #333;
+      border-radius: 8px;
+      padding: 15px;
+      box-sizing: border-box;
+    }
+    .song-list-title {
+      font-size: 1.2rem;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #00ffcc;
+      border-bottom: 1px solid #333;
+      padding-bottom: 5px;
+    }
+    .song-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .song-item {
+      padding: 12px;
+      margin-bottom: 8px;
+      background: #25252a;
+      border: 1px solid #444;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .song-item:hover {
+      background: #33333a;
+      border-color: #00ffcc;
+    }
+    .song-item.active {
+      background: #00ffcc;
+      color: #000;
+      font-weight: bold;
+      border-color: #fff;
+    }
+    /* 右側：ゲーム画面エリア */
+    .game-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    canvas {
+      background-color: #000;
+      border: 2px solid #333;
+      box-shadow: 0 0 20px rgba(0, 255, 200, 0.2);
+      cursor: pointer;
+    }
+    .hud {
+      font-size: 1.5rem;
+      font-weight: bold;
+      margin: 10px;
+    }
+    .instructions {
+      font-size: 0.9rem;
+      color: #aaa;
+      margin-top: 10px;
+    }
+    #start-msg {
+      color: #00ffcc;
+      font-weight: bold;
+      font-size: 1.1rem;
+      margin: 10px 0;
+      white-space: pre-wrap;
+      max-width: 400px;
+      height: 48px;
+    }
+    #error-log {
+      color: #ff4444;
+      background: #220000;
+      border: 1px solid #ff4444;
+      padding: 10px;
+      max-width: 600px;
+      margin: 10px auto;
+      display: none;
+      text-align: left;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>RHYTHM GAME</h1>
+
+  <div id="file-input-container">
+    <p style="margin: 0 0 10px 0;">複数の楽曲フォルダが入った<b>親フォルダを選択</b>してください</p>
+    <input type="file" id="folder-input" webkitdirectory directory multiple>
+  </div>
+
+  <div id="error-log"></div>
+
+  <div class="main-container">
+    <!-- 左側：楽曲選択リスト -->
+    <div class="song-list-container">
+      <div class="song-list-title">MUSIC SELECT</div>
+      <ul id="song-list" class="song-list">
+        <li style="color: #666; padding: 10px;">フォルダが未選択です</li>
+      </ul>
+    </div>
+
+    <!-- 右側：ゲーム本体 -->
+    <div class="game-container">
+      <div class="hud">
+        SCORE: <span id="score">0</span> | <span id="combo">0</span> COMBO
+      </div>
+      <div class="hud" id="judge-display" style="color: cyan; height: 30px; margin: 5px 0;"></div>
+
+      <canvas id="gameCanvas" width="400" height="600"></canvas>
+
+      <div id="start-msg">親フォルダを読み込んでください</div>
+      <p class="instructions">キー操作: <b>D</b> (左) / <b>F</b> (中左) / <b>J</b> (中右) / <b>K</b> (右)</p>
+    </div>
+  </div>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const LANES = 4;
+    const LANE_WIDTH = canvas.width / LANES;
+    const JUDGE_LINE_Y = 520;
+    const NOTE_SPEED = 400;
+    const KEYS = ['d', 'f', 'j', 'k'];
+    const LANE_COLORS = ['#ff2a6d', '#05d9e8', '#05d9e8', '#ff2a6d'];
+
+    let audio = new Audio();
+    let notes = [];
+    let initialBpm = 120;
+    let isPlaying = false;
+    let isReady = false;
+    let score = 0;
+    let combo = 0;
+    
+    // キーが現在押されているかどうかをリアルタイム保持
+    let keyState = [false, false, false, false];
+
+    // 読み込まれた全楽曲のデータを保持する配列
+    let songsData = [];
+    let currentSongIndex = -1;
+
+    function logError(msg) {
+      const errBox = document.getElementById('error-log');
+      errBox.style.display = 'block';
+      errBox.innerText = "【エラーが発生しました】\n" + msg;
+    }
+
+    // フォルダ選択時の処理：複数楽曲フォルダの自動仕分け
+    document.getElementById('folder-input').addEventListener('change', async (e) => {
+      document.getElementById('error-log').style.display = 'none';
+      const files = Array.from(e.target.files);
+      
+      // フォルダ構造（相対パス）から、サブフォルダごとにファイルをグループ化
+      // パス例: 親フォルダ/楽曲A/chart.txt
+      const foldersMap = new Map();
+
+      files.forEach(file => {
+        const pathParts = file.webkitRelativePath.split('/');
+        // 親フォルダ直下のファイルではなく、サブフォルダに入っている場合のみ対象
+        if (pathParts.length >= 3) {
+          const folderName = pathParts[pathParts.length - 2]; // 楽曲フォルダ名を取得
+          if (!foldersMap.has(folderName)) {
+            foldersMap.set(folderName, []);
+          }
+          foldersMap.get(folderName).push(file);
+        }
+      });
+
+      songsData = [];
+      const songListEl = document.getElementById('song-list');
+      songListEl.innerHTML = ''; // リストのクリア
+
+      // 各フォルダを解析して、音源と譜面が揃っているものを楽曲として登録
+      for (let [folderName, folderFiles] of foldersMap.entries()) {
+        const audioFile = folderFiles.find(f => f.type.startsWith('audio/') || f.name.endsWith('.mp3') || f.name.endsWith('.wav') || f.name.endsWith('.ogg'));
+        const chartFile = folderFiles.find(f => f.name.endsWith('.txt'));
+
+        if (audioFile && chartFile) {
+          songsData.push({
+            title: folderName,
+            audioFile: audioFile,
+            chartFile: chartFile
+          });
+        }
+      }
+
+      if (songsData.length === 0) {
+        songListEl.innerHTML = '<li style="color: #ff4444; padding: 10px;">有効な楽曲フォルダ（音楽ファイルとchart.txtが入ったもの）が見つかりませんでした。</li>';
+        return;
+      }
+
+      // 楽曲リストの画面描画
+      songsData.forEach((song, index) => {
+        const li = document.createElement('li');
+        li.className = 'song-item';
+        li.innerText = song.title;
+        li.addEventListener('click', () => selectSong(index));
+        songListEl.appendChild(li);
+      });
+
+      document.getElementById('start-msg').innerText = `楽曲フォルダを ${songsData.length} 件読み込みました。\n左のリストから曲を選択してください。`;
+      drawStatic();
+    });
+
+    // 楽曲選択時の処理
+    async function selectSong(index) {
+      if (isPlaying) {
+        audio.pause();
+        isPlaying = false;
+      }
+
+      currentSongIndex = index;
+      const song = songsData[index];
+
+      // リストの選択中デザインの切り替え
+      const items = document.querySelectorAll('.song-item');
+      items.forEach((item, idx) => {
+        if (idx === index) item.classList.add('active');
+        else item.classList.remove('active');
+      });
+
+      try {
+        // スコアなどのリセット
+        score = 0;
+        combo = 0;
+        updateHUD();
+        showJudge('', 'cyan');
+
+        // 音声と譜面のセット
+        audio.src = URL.createObjectURL(song.audioFile);
+        const chartText = await song.chartFile.text();
+        parseChart(chartText);
+
+        document.getElementById('start-msg').innerText = `「${song.title}」準備完了 (BPM: ${initialBpm} / ノーツ数: ${notes.length})\n【画面をクリックしてから】スペースキーでスタート！`;
+        isReady = true;
+
+        drawStatic();
+      } catch (err) {
+        console.error(err);
+        logError(err.stack || err.message);
+      }
+    }
+
+    // 譜面パース処理（既存ロジックを完全踏襲）
+    function parseChart(text) {
+      notes = [];
+      initialBpm = 120;
+      let defaultBeat = 4;
+      if (!text) return;
+
+      const sanitizedText = text.replace(/，/g, ',');
+      const lines = sanitizedText.split('\n');
+      
+      let timingChanges = [];
+      let rawNotes = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+
+        const parts = line.split(',');
+
+        if (parts[0].toUpperCase().trim() === 'BEAT' && parts.length >= 3) {
+          const m = parseFloat(parts[1]);
+          const b = parseFloat(parts[2]);
+          if (!isNaN(m) && !isNaN(b)) timingChanges.push({ measure: m, beat: b });
+          continue;
+        }
+
+        if (parts[0].toUpperCase().includes('BEAT')) {
+          const beatMatch = line.match(/\d+(\.\d+)?/);
+          if (beatMatch) defaultBeat = parseFloat(beatMatch[0]);
+          continue;
+        }
+
+        if (parts[0].toUpperCase().trim() === 'BPM' && parts.length >= 3) {
+          const m = parseFloat(parts[1]);
+          const bpm = parseFloat(parts[2]);
+          if (!isNaN(m) && !isNaN(bpm)) timingChanges.push({ measure: m, bpm: bpm });
+          continue;
+        }
+
+        if (parts[0].toUpperCase().includes('BPM')) {
+          const bpmMatch = line.match(/\d+(\.\d+)?/);
+          if (bpmMatch) initialBpm = parseFloat(bpmMatch[0]);
+          continue;
+        }
+
+        if (parts.length >= 3) {
+          const measure = parseFloat(parts[0].trim());
+          const beat = parseFloat(parts[1].trim());
+          const lane = parseInt(parts[2].trim(), 10);
+          const durationBeat = parts.length >= 4 ? parseFloat(parts[3].trim()) : 0;
+          
+          if (!isNaN(measure) && !isNaN(beat) && !isNaN(lane) && lane >= 0 && lane < LANES) {
+            rawNotes.push({ measure, beat, lane, durationBeat: isNaN(durationBeat) ? 0 : durationBeat });
+          }
+        }
+      }
+
+      let mapByMeasure = new Map();
+      mapByMeasure.set(1, { measure: 1, bpm: initialBpm, beat: defaultBeat });
+
+      for (let change of timingChanges) {
+        let current = mapByMeasure.get(change.measure) || { measure: change.measure };
+        if (change.bpm !== undefined) current.bpm = change.bpm;
+        if (change.beat !== undefined) current.beat = change.beat;
+        mapByMeasure.set(change.measure, current);
+      }
+
+      let sortedEvents = Array.from(mapByMeasure.values()).sort((a, b) => a.measure - b.measure);
+      let activeBpm = initialBpm;
+      let activeBeat = defaultBeat;
+
+      for (let ev of sortedEvents) {
+        if (ev.bpm === undefined) ev.bpm = activeBpm;
+        else activeBpm = ev.bpm;
+
+        if (ev.beat === undefined) ev.beat = activeBeat;
+        else activeBeat = ev.beat;
+      }
+
+      let currentTime = 0;
+      sortedEvents[0].time = 0;
+
+      for (let i = 0; i < sortedEvents.length - 1; i++) {
+        const cur = sortedEvents[i];
+        const next = sortedEvents[i + 1];
+        const duration = (next.measure - cur.measure) * cur.beat * (60 / cur.bpm);
+        currentTime += duration;
+        next.time = currentTime;
+      }
+
+      for (let n of rawNotes) {
+        let activeEvent = sortedEvents[0];
+        for (let ev of sortedEvents) {
+          if (n.measure >= ev.measure) activeEvent = ev;
+          else break;
+        }
+
+        const secondsPerBeat = 60 / activeEvent.bpm;
+        const beatOffset = ((n.measure - activeEvent.measure) * activeEvent.beat) + (n.beat - 1);
+        const startTime = activeEvent.time + (beatOffset * secondsPerBeat);
+        const durationSec = n.durationBeat * secondsPerBeat;
+
+        notes.push({ 
+          time: startTime, 
+          endTime: startTime + durationSec,
+          isHold: n.durationBeat > 0,
+          lane: n.lane, 
+          hit: false, 
+          missed: false,
+          completed: false,
+          lastTickTime: 0
+        });
+      }
+
+      notes.sort((a, b) => a.time - b.time);
+    }
+    // キーの状態更新
+    window.addEventListener('keydown', async (e) => {
+      // ゲームプレイ中でない、かつ入力欄などにフォーカスがない場合にスペースキーで開始
+      if (e.code === 'Space' && isReady && !isPlaying) {
+        e.preventDefault(); // 画面のスクロールを防止
+        try {
+          audio.currentTime = 0;
+          await audio.play();
+          isPlaying = true;
+          document.getElementById('start-msg').style.display = 'none';
+          requestAnimationFrame(gameLoop);
+        } catch (err) {
+          alert('画面を一度クリックしてからスペースキーを押してください。');
+        }
+        return;
+      }
+
+      const keyIndex = KEYS.indexOf(e.key.toLowerCase());
+      if (keyIndex !== -1) {
+        if (!keyState[keyIndex]) {
+          keyState[keyIndex] = true;
+          if (isPlaying) checkTapHit(keyIndex); // 通常ノーツのみタップ時に判定
+        }
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const keyIndex = KEYS.indexOf(e.key.toLowerCase());
+      if (keyIndex !== -1) {
+        keyState[keyIndex] = false;
+      }
+    });
+
+    // 通常ノーツ用タップ判定
+    function checkTapHit(lane) {
+      const currentTime = audio.currentTime;
+      const targetNote = notes.find(n => n.lane === lane && !n.isHold && !n.hit && !n.missed);
+
+      if (targetNote) {
+        const diff = Math.abs(targetNote.time - currentTime);
+        if (diff < 0.2) {
+          targetNote.hit = true;
+          if (diff < 0.08) showJudge('PERFECT!!', '#00ffff');
+          else if (diff < 0.14) showJudge('GREAT', '#00ff66');
+          else showJudge('GOOD', '#ffcc00');
+
+          score += 1000;
+          combo++;
+          updateHUD();
+        }
+      }
+    }
+
+    function showJudge(text, color) {
+      const el = document.getElementById('judge-display');
+      el.innerText = text;
+      el.style.color = color;
+    }
+
+    function updateHUD() {
+      document.getElementById('score').innerText = score;
+      document.getElementById('combo').innerText = combo;
+    }
+
+    function drawStatic() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#333';
+      for (let i = 1; i < LANES; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * LANE_WIDTH, 0);
+        ctx.lineTo(i * LANE_WIDTH, canvas.height);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#ff0055';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, JUDGE_LINE_Y);
+      ctx.lineTo(canvas.width, JUDGE_LINE_Y);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    function gameLoop() {
+      if (!isPlaying) return;
+      const currentTime = audio.currentTime;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // レーン描画
+      ctx.strokeStyle = '#333';
+      for (let i = 1; i < LANES; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * LANE_WIDTH, 0);
+        ctx.lineTo(i * LANE_WIDTH, canvas.height);
+        ctx.stroke();
+      }
+
+      // 判定ライン
+      ctx.strokeStyle = '#ff0055';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, JUDGE_LINE_Y);
+      ctx.lineTo(canvas.width, JUDGE_LINE_Y);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+
+      notes.forEach(note => {
+        // --- 通常ノーツの処理 ---
+        if (!note.isHold) {
+          if (!note.hit && (currentTime - note.time) > 0.2 && !note.missed) {
+            note.missed = true;
+            combo = 0;
+            showJudge('MISS...', '#ff0055');
+            updateHUD();
+          }
+
+          if (!note.hit && !note.missed) {
+            const y = JUDGE_LINE_Y - ((note.time - currentTime) * NOTE_SPEED);
+            if (y > -20 && y < canvas.height + 20) {
+              ctx.fillStyle = LANE_COLORS[note.lane];
+              ctx.fillRect(note.lane * LANE_WIDTH + 5, y - 10, LANE_WIDTH - 10, 20);
+            }
+          }
+        } 
+        // --- ホールドノーツの処理（フレームごとの継続判定） ---
+        else {
+          const isKeyDown = keyState[note.lane];
+          const isAtJudgeLine = (currentTime >= note.time - 0.15 && currentTime <= note.endTime);
+
+          if (!note.completed && !note.missed) {
+            // ホールド領域が判定ライン上にある場合
+            if (isAtJudgeLine) {
+              if (isKeyDown) {
+                // キーを押していれば即座にヒット状態とし、連続加算
+                note.hit = true;
+                if (currentTime - note.lastTickTime >= 0.08) {
+                  score += 100;
+                  combo++;
+                  note.lastTickTime = currentTime;
+                  showJudge('HOLDING!', '#00ffff');
+                  updateHUD();
+                }
+              } else if (note.hit) {
+                // 一度押し始めたのに途中で離した場合はMISS
+                note.missed = true;
+                combo = 0;
+                showJudge('MISS...', '#ff0055');
+                updateHUD();
+              }
+            }
+
+            // 終点を通り過ぎた時のクリア処理
+            if (currentTime > note.endTime) {
+              if (note.hit && !note.missed) {
+                note.completed = true;
+                score += 1000;
+                combo++;
+                showJudge('HOLD CLEAR!', '#00ffff');
+                updateHUD();
+              } else if (!note.hit) {
+                note.missed = true;
+                combo = 0;
+                showJudge('MISS...', '#ff0055');
+                updateHUD();
+              }
+            }
+          }
+
+          // 描画処理
+          if (!note.completed && !note.missed && currentTime < note.endTime) {
+            const startY = JUDGE_LINE_Y - ((note.time - currentTime) * NOTE_SPEED);
+            const endY = JUDGE_LINE_Y - ((note.endTime - currentTime) * NOTE_SPEED);
+            const topY = endY;
+            // 押下中は判定ラインより下を切る
+            const bottomY = (note.hit && isKeyDown) ? JUDGE_LINE_Y : startY;
+
+            if (bottomY > 0 && topY < canvas.height) {
+              // 帯描画
+              ctx.fillStyle = LANE_COLORS[note.lane] + '88';
+              ctx.fillRect(note.lane * LANE_WIDTH + 15, topY, LANE_WIDTH - 30, bottomY - topY);
+
+              // 終点バー
+              ctx.fillStyle = LANE_COLORS[note.lane];
+              ctx.fillRect(note.lane * LANE_WIDTH + 5, topY - 5, LANE_WIDTH - 10, 10);
+
+              // 始点バー
+              if (!note.hit || !isKeyDown) {
+                ctx.fillRect(note.lane * LANE_WIDTH + 5, bottomY - 5, LANE_WIDTH - 10, 10);
+              } else {
+                // 押下中の光るエフェクト
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(note.lane * LANE_WIDTH + 5, JUDGE_LINE_Y - 5, LANE_WIDTH - 10, 10);
+              }
+            }
+          }
+        }
+      });
+
+      if (audio.ended) {
+        isPlaying = false;
+        // リスタートできるよう案内を表示
+        document.getElementById('start-msg').style.display = 'block';
+        document.getElementById('start-msg').innerText = `「${songsData[currentSongIndex].title}」クリア！\nスコア: ${score}\nもう一度遊ぶにはスペースキーを押してください。`;
+        showJudge('CLEAR!', '#ffffff');
+      } else {
+        requestAnimationFrame(gameLoop);
+      }
+    }
+  </script>
+</body>
+</html>
