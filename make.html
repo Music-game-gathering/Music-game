@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>音ゲー譜面メーカー PRO+ (ホールド・再生バグ修正版)</title>
+  <style>
+    body {
+      background-color: #121214;
+      color: #fff;
+      font-family: sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 1.8rem;
+    }
+    .main-container {
+      display: flex;
+      gap: 30px;
+      max-width: 900px;
+      width: 100%;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    /* エディタ（キャンバス）エリア */
+    .editor-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    canvas {
+      background-color: #000;
+      border: 2px solid #333;
+      box-shadow: 0 0 20px rgba(0, 255, 200, 0.1);
+      cursor: crosshair;
+    }
+    /* コントロールパネル（右側） */
+    .panel-container {
+      width: 320px;
+      background: #1a1a1e;
+      border: 2px solid #333;
+      border-radius: 8px;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .panel-section {
+      margin-bottom: 20px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 15px;
+    }
+    .panel-section:last-child {
+      border: none;
+    }
+    h3 {
+      margin: 0 0 10px 0;
+      color: #00ffcc;
+      font-size: 1.1rem;
+    }
+    label {
+      display: block;
+      font-size: 0.9rem;
+      color: #ccc;
+      margin-bottom: 5px;
+    }
+    input[type="number"], input[type="file"], select {
+      width: 100%;
+      padding: 8px;
+      background: #25252a;
+      border: 1px solid #444;
+      color: #fff;
+      border-radius: 4px;
+      box-sizing: border-box;
+      margin-bottom: 10px;
+    }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      background: #00ffcc;
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: background 0.2s;
+      margin-bottom: 5px;
+    }
+    .btn:hover {
+      background: #00ccaa;
+    }
+    .btn-secondary {
+      background: #25252a;
+      color: #fff;
+      border: 1px solid #444;
+    }
+    .btn-secondary:hover {
+      background: #33333a;
+    }
+    .radio-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .radio-label {
+      flex: 1;
+      text-align: center;
+      background: #25252a;
+      padding: 8px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    input[type="radio"] {
+      display: none;
+    }
+    input[type="radio"]:checked + .radio-label {
+      background: #00ffcc;
+      color: #000;
+      font-weight: bold;
+      border-color: #fff;
+    }
+    .instructions {
+      font-size: 0.85rem;
+      color: #aaa;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>RHYTHM GAME - 譜面メーカー PRO+</h1>
+
+  <div class="main-container">
+    <!-- 左側：エディタ画面 -->
+    <div class="editor-container">
+      <canvas id="editorCanvas" width="400" height="600"></canvas>
+      <div style="margin-top: 10px; font-size: 0.9rem; color: #00ffcc;">
+        現在の表示小節: <span id="current-measure-display">1</span>
+      </div>
+    </div>
+
+    <!-- 右側：設定パネル -->
+    <div class="panel-container">
+      <div class="panel-section">
+        <h3>1. 楽曲ファイルの読み込み</h3>
+        <label>制作・テスト再生用（mp3等）</label>
+        <input type="file" id="audio-input" accept="audio/*">
+        <button class="btn btn-secondary" id="play-btn">ファイルを選択してください</button>
+      </div>
+
+      <div class="panel-section">
+        <h3>2. 基本設定</h3>
+        <label>初期BPM</label>
+        <input type="number" id="input-bpm" value="120" min="20" max="300">
+        <label>グリッド分割（マウス配置用）</label>
+        <select id="grid-snap">
+          <option value="4">4分音符（1小節を4分割）</option>
+          <option value="8" selected>8分音符（1小節を8分割）</option>
+          <option value="16">16分音符（1小節を16分割）</option>
+        </select>
+      </div>
+
+      <div class="panel-section">
+        <h3>3. 操作方法</h3>
+        <div class="radio-group">
+          <input type="radio" id="mode-tap" name="note-mode" value="tap" checked>
+          <label for="mode-tap" class="radio-label">通常ノーツ</label>
+          
+          <input type="radio" id="mode-hold" name="note-mode" value="hold">
+          <label for="mode-hold" class="radio-label">ロング（2拍）</label>
+        </div>
+        <p class="instructions">
+          <b>【マウス操作（一時停止中）】</b><br>
+          ・レーンをクリックで配置 / 削除<br>
+          ・<b>矢印キー（↑ ↓）</b>で譜面スクロール<br>
+          <br>
+          <b>【リアルタイム制作（再生中）】</b><br>
+          ・<b>短く押す</b> ➔ タップノーツを配置<br>
+          ・<b>長押しする</b> ➔ 離すまでホールドノーツを生成！<br>
+          ※16分音符のグリッドに自動でスナップされます。<br>
+          <br>
+          <b>【履歴機能】</b><br>
+          ・元に戻す: <b>Ctrl + Z</b><br>
+          ・やり直す: <b>Ctrl + Shift + Z</b>
+        </p>
+      </div>
+
+      <div class="panel-section">
+        <h3>4. 出力</h3>
+        <button class="btn" id="export-btn">chart.txt を書き出す</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    const canvas = document.getElementById('editorCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const LANES = 4;
+    const LANE_WIDTH = canvas.width / LANES;
+    const KEYS = ['d', 'f', 'j', 'k'];
+    const LANE_COLORS = ['#ff2a6d', '#05d9e8', '#05d9e8', '#ff2a6d'];
+    
+    // エディタ用設定
+    let bpm = 120;
+    let gridSnap = 8; 
+    let currentScrollY = 0; 
+    const PIXELS_PER_MEASURE = 400; 
+    
+    // 譜面データ
+    let editorNotes = [];
+
+    // アンドゥ・リドゥ用の履歴スタック
+    let undoStack = [];
+    let redoStack = [];
+
+    let audio = new Audio();
+    let isAudioLoaded = false;
+    let isPlaying = false;
+
+    // リアルタイム制作中に「現在長押しされているノーツの情報」をレーンごとに一時保持する配列
+    let activeHolds = [null, null, null, null];
+
+    // 履歴に保存
+    function saveHistory() {
+      undoStack.push(JSON.stringify(editorNotes));
+      redoStack = [];
+    }
+
+    // 元に戻す (Ctrl + Z)
+    function undo() {
+      if (undoStack.length > 0) {
+        redoStack.push(JSON.stringify(editorNotes));
+        editorNotes = JSON.parse(undoStack.pop());
+        drawEditor();
+      }
+    }
+
+    // やり直す (Ctrl + Shift + Z)
+    function redo() {
+      if (redoStack.length > 0) {
+        undoStack.push(JSON.stringify(editorNotes));
+        editorNotes = JSON.parse(redoStack.pop());
+        drawEditor();
+      }
+    }
+
+    // 【修正ポイント】音声ファイルの安全な読み込みと状態管理
+    document.getElementById('audio-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (audio.src) {
+        URL.revokeObjectURL(audio.src);
+      }
+
+      isAudioLoaded = false;
+      isPlaying = false;
+      const playBtn = document.getElementById('play-btn');
+      playBtn.style.background = '#25252a';
+      playBtn.style.color = '#aaa';
+      playBtn.innerText = "読み込み中...";
+
+      audio.src = URL.createObjectURL(file);
+      
+      // ブラウザが音声データを最後まで再生可能と判断した時にフラグを立てる
+      audio.addEventListener('canplaythrough', () => {
+        isAudioLoaded = true;
+        playBtn.style.background = '#00ffcc';
+        playBtn.style.color = '#000';
+        playBtn.innerText = "再生 / 一時停止 (Space)";
+      }, { once: true });
+
+      // 読み込みエラー対策
+      audio.addEventListener('error', () => {
+        alert('音声ファイルの読み込みに失敗しました。ファイル形式(mp3/wav等)を確認してください。');
+        playBtn.innerText = "再生失敗";
+      }, { once: true });
+    });
+
+    // 再生・一時停止の切り替え（ユーザー操作経由でplayを実行することで制限を回避）
+    async function togglePlay() {
+      if (!isAudioLoaded) {
+        alert('音声ファイルがまだ完全に読み込まれていないか、選択されていません。\nボタンが「再生 / 一時停止」に変わるまで一瞬お待ちください。');
+        return;
+      }
+      
+      if (isPlaying) {
+        audio.pause();
+        isPlaying = false;
+        // 停止時に長押し中のノーツがあれば強制終了して確定させる
+        for (let i = 0; i < LANES; i++) {
+          if (activeHolds[i]) endHoldNoteRealtime(i);
+        }
+      } else {
+        try {
+          await audio.play();
+          isPlaying = true;
+          updatePlayback(); 
+        } catch (err) {
+          console.error(err);
+          alert('ブラウザによって音声再生がブロックされました。\n一度画面のどこかをマウスでクリックしてから、もう一度試してください。');
+        }
+      }
+    }
+
+    document.getElementById('play-btn').addEventListener('click', togglePlay);
+
+    // 再生中の画面スクロール同期
+    function updatePlayback() {
+      if (!isPlaying) return;
+
+      const currentTime = audio.currentTime;
+      const secondsPerBeat = 60 / bpm;
+
+      const totalBeats = currentTime / secondsPerBeat;
+      currentScrollY = (totalBeats / 4) * PIXELS_PER_MEASURE;
+
+      // リアルタイム長押し中のノーツがあれば、長さをリアルタイムにプレビューへ反映
+      for (let i = 0; i < LANES; i++) {
+        if (activeHolds[i]) {
+          const rawBeat = (totalBeats % 4) + 1;
+          const snapTo16th = 0.25;
+          let currentBeat = Math.round((rawBeat - 1) / snapTo16th) * snapTo16th + 1;
+          let currentMeasureNum = Math.floor(totalBeats / 4) + 1;
+          
+          if (currentBeat >= 5) {
+            currentMeasureNum += 1;
+            currentBeat = 1;
+          }
+          
+          const startTotalBeats = (activeHolds[i].measure - 1) * 4 + (activeHolds[i].beat - 1);
+          const currentTotalBeats = (currentMeasureNum - 1) * 4 + (currentBeat - 1);
+          activeHolds[i].durationBeat = Math.max(0, currentTotalBeats - startTotalBeats);
+        }
+      }
+
+      drawEditor();
+      requestAnimationFrame(updatePlayback);
+    }
+
+    // 基本設定変更
+    document.getElementById('input-bpm').addEventListener('change', (e) => {
+      bpm = parseFloat(e.target.value) || 120;
+    });
+    document.getElementById('grid-snap').addEventListener('change', (e) => {
+      gridSnap = parseInt(e.target.value, 10) || 8;
+      drawEditor();
+    });
+    // キーボード入力イベント
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+        return;
+      }
+
+      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+        return;
+      }
+
+      // 再生中のキー押し込み ➔ ホールド始点の開始
+      if (isPlaying) {
+        const keyIndex = KEYS.indexOf(e.key.toLowerCase());
+        if (keyIndex !== -1 && !e.repeat) { 
+          e.preventDefault();
+          startHoldNoteRealtime(keyIndex);
+        }
+        return;
+      }
+
+      // 一時停止中の手動スクロール
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        currentScrollY += 50;
+        drawEditor();
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        currentScrollY = Math.max(0, currentScrollY - 50);
+        drawEditor();
+      }
+    });
+
+    // キーを離したときのイベント ➔ ホールド終点の確定
+    window.addEventListener('keyup', (e) => {
+      if (!isPlaying) return;
+      const keyIndex = KEYS.indexOf(e.key.toLowerCase());
+      if (keyIndex !== -1) {
+        e.preventDefault();
+        endHoldNoteRealtime(keyIndex);
+      }
+    });
+
+    // リアルタイム打鍵：キーを押した瞬間の処理
+    function startHoldNoteRealtime(lane) {
+      if (activeHolds[lane]) return;
+
+      const currentTime = audio.currentTime;
+      const secondsPerBeat = 60 / bpm;
+
+      const totalBeats = currentTime / secondsPerBeat;
+      let measure = Math.floor(totalBeats / 4) + 1;
+      let rawBeat = (totalBeats % 4) + 1;
+
+      // 16分音符（0.25拍単位）にスナップ
+      const snapTo16th = 0.25;
+      let beat = Math.round((rawBeat - 1) / snapTo16th) * snapTo16th + 1;
+
+      if (beat >= 5) {
+        measure += 1;
+        beat = 1;
+      }
+
+      activeHolds[lane] = {
+        measure: measure,
+        beat: beat,
+        lane: lane,
+        durationBeat: 0
+      };
+    }
+
+    // リアルタイム打鍵：キーを離した瞬間の処理
+    function endHoldNoteRealtime(lane) {
+      const holdNote = activeHolds[lane];
+      if (!holdNote) return;
+
+      const currentTime = audio.currentTime;
+      const secondsPerBeat = 60 / bpm;
+
+      const totalBeats = currentTime / secondsPerBeat;
+      let endMeasure = Math.floor(totalBeats / 4) + 1;
+      let rawEndBeat = (totalBeats % 4) + 1;
+
+      const snapTo16th = 0.25;
+      let endBeat = Math.round((rawEndBeat - 1) / snapTo16th) * snapTo16th + 1;
+
+      if (endBeat >= 5) {
+        endMeasure += 1;
+        endBeat = 1;
+      }
+
+      const startTotalBeats = (holdNote.measure - 1) * 4 + (holdNote.beat - 1);
+      const endTotalBeats = (endMeasure - 1) * 4 + (endBeat - 1);
+      let durationBeat = Math.max(0, endTotalBeats - startTotalBeats);
+
+      // 短い押し込み（16分音符1個分以下）なら通常ノーツ（タップ）に変換
+      if (durationBeat <= 0.25) {
+        durationBeat = 0;
+      }
+
+      holdNote.durationBeat = durationBeat;
+
+      saveHistory();
+
+      const isDuplicate = editorNotes.some(n => 
+        n.lane === lane && n.measure === holdNote.measure && Math.abs(n.beat - holdNote.beat) < 0.01
+      );
+
+      if (!isDuplicate) {
+        editorNotes.push(holdNote);
+        editorNotes.sort((a, b) => {
+          if (a.measure !== b.measure) return a.measure - b.measure;
+          return a.beat - b.beat;
+        });
+      }
+
+      activeHolds[lane] = null;
+      drawEditor();
+    }
+
+    // マウスでのノーツ配置・削除
+    canvas.addEventListener('mousedown', (e) => {
+      if (isPlaying) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const lane = Math.floor(mouseX / LANE_WIDTH);
+      if (lane < 0 || lane >= LANES) return;
+
+      const absoluteY = (canvas.height - mouseY) + currentScrollY;
+      const exactMeasure = (absoluteY / PIXELS_PER_MEASURE) + 1;
+
+      const gridIndex = Math.round(((exactMeasure % 1) * PIXELS_PER_MEASURE) / (PIXELS_PER_MEASURE / gridSnap));
+      
+      let measure = Math.floor(exactMeasure);
+      let finalGridIndex = gridIndex;
+      if (finalGridIndex === gridSnap) {
+        measure += 1;
+        finalGridIndex = 0;
+      }
+
+      const beat = 1 + (finalGridIndex * (4 / gridSnap));
+      const noteMode = document.querySelector('input[name="note-mode"]:checked').value;
+      const durationBeat = (noteMode === 'hold') ? 2 : 0;
+
+      const existingIndex = editorNotes.findIndex(n => 
+        n.lane === lane && n.measure === measure && Math.abs(n.beat - beat) < 0.01
+      );
+
+      saveHistory();
+
+      if (existingIndex !== -1) {
+        editorNotes.splice(existingIndex, 1);
+      } else {
+        editorNotes.push({
+          measure: measure,
+          beat: beat,
+          lane: lane,
+          durationBeat: durationBeat
+        });
+      }
+
+      editorNotes.sort((a, b) => {
+        if (a.measure !== b.measure) return a.measure - b.measure;
+        return a.beat - b.beat;
+      });
+
+      drawEditor();
+    });
+
+    // 描画処理本体
+    function drawEditor() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 1;
+      for (let i = 1; i < LANES; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * LANE_WIDTH, 0);
+        ctx.lineTo(i * LANE_WIDTH, canvas.height);
+        ctx.stroke();
+      }
+
+      const startAbsoluteY = currentScrollY;
+      const endAbsoluteY = currentScrollY + canvas.height;
+      const startMeasure = Math.floor(startAbsoluteY / PIXELS_PER_MEASURE) + 1;
+      const endMeasure = Math.ceil(endAbsoluteY / PIXELS_PER_MEASURE) + 1;
+
+      const currentGrid = isPlaying ? 16 : gridSnap; 
+
+      for (let m = startMeasure; m <= endMeasure; m++) {
+        for (let g = 0; g < currentGrid; g++) {
+          const beatOffset = g * (PIXELS_PER_MEASURE / currentGrid);
+          const absoluteY = ((m - 1) * PIXELS_PER_MEASURE) + beatOffset;
+          const screenY = canvas.height - (absoluteY - currentScrollY);
+
+          if (screenY >= 0 && screenY <= canvas.height) {
+            if (g === 0) {
+              ctx.strokeStyle = '#ff0055';
+              ctx.lineWidth = 2;
+              ctx.fillStyle = '#ff0055';
+              ctx.font = '12px sans-serif';
+              ctx.fillText(`M ${m}`, 5, screenY - 4);
+            } else if (g % (currentGrid / 4) === 0) {
+              ctx.strokeStyle = '#555';
+              ctx.lineWidth = 1;
+            } else {
+              ctx.strokeStyle = '#25252a';
+              ctx.lineWidth = 1;
+            }
+            ctx.beginPath();
+            ctx.moveTo(0, screenY);
+            ctx.lineTo(canvas.width, screenY);
+            ctx.stroke();
+          }
+        }
+      }
+
+      editorNotes.forEach(note => {
+        drawSingleNote(note);
+      });
+
+      for (let i = 0; i < LANES; i++) {
+        if (activeHolds[i]) {
+          drawSingleNote(activeHolds[i]);
+        }
+      }
+
+      const currentMeasure = Math.floor(currentScrollY / PIXELS_PER_MEASURE) + 1;
+      document.getElementById('current-measure-display').innerText = currentMeasure;
+    }
+
+    function drawSingleNote(note) {
+      const beatFraction = (note.beat - 1) / 4;
+      const absoluteY = ((note.measure - 1) * PIXELS_PER_MEASURE) + (beatFraction * PIXELS_PER_MEASURE);
+
+      if (note.durationBeat === 0) {
+        const screenY = canvas.height - (absoluteY - currentScrollY);
+        if (screenY >= -10 && screenY <= canvas.height + 10) {
+          ctx.fillStyle = LANE_COLORS[note.lane];
+          ctx.fillRect(note.lane * LANE_WIDTH + 5, screenY - 10, LANE_WIDTH - 10, 20);
+        }
+      } else {
+        const absoluteEndY = absoluteY + ((note.durationBeat / 4) * PIXELS_PER_MEASURE);
+        const screenStartY = canvas.height - (absoluteY - currentScrollY);
+        const screenEndY = canvas.height - (absoluteEndY - currentScrollY);
+
+        if (screenStartY >= 0 || screenEndY <= canvas.height) {
+          ctx.fillStyle = LANE_COLORS[note.lane] + '88';
+          ctx.fillRect(note.lane * LANE_WIDTH + 15, screenEndY, LANE_WIDTH - 30, screenStartY - screenEndY);
+          ctx.fillStyle = LANE_COLORS[note.lane];
+          ctx.fillRect(note.lane * LANE_WIDTH + 5, screenEndY - 5, LANE_WIDTH - 10, 10);
+          ctx.fillRect(note.lane * LANE_WIDTH + 5, screenStartY - 5, LANE_WIDTH - 10, 10);
+        }
+      }
+    }
+
+    document.getElementById('export-btn').addEventListener('click', () => {
+      if (editorNotes.length === 0) {
+        alert('ノーツが1つも配置されていません！');
+        return;
+      }
+
+      let outputText = `// RHYTHM GAME CHART DATA\n`;
+      outputText += `BPM, ${bpm}\n`;
+      outputText += `BEAT, 4\n\n`;
+      outputText += `// measure, beat, lane, [durationBeat]\n`;
+
+      editorNotes.forEach(note => {
+        if (note.durationBeat > 0) {
+          outputText += `${note.measure}, ${note.beat}, ${note.lane}, ${note.durationBeat}\n`;
+        } else {
+          outputText += `${note.measure}, ${note.beat}, ${note.lane}\n`;
+        }
+      });
+
+      const blob = new Blob([outputText], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'chart.txt';
+      a.click();
+    });
+
+    drawEditor();
+  </script>
+</body>
+</html>
