@@ -125,19 +125,18 @@
 
   <div class="footer">RHYTHM GAME SYSTEM v1.0</div>
   <script>
-    // 同一フォルダ内にあるゲーム本体と譜面メーカーのファイル名を指定します
-    // お手元のファイル名に合わせて適宜変更してください
+    // 実際のファイル名に合わせて変更しました
     const GAME_FILE = '02_game.html';
     const EDITOR_FILE = '03_editor.html';
 
     // 「遊ぶ」カードをクリックしたときの処理
     document.getElementById('btn-play').addEventListener('click', () => {
-      window.open = 02_game.html;
+      window.location.href = GAME_FILE;
     });
 
     // 「作る」カードをクリックしたときの処理
     document.getElementById('btn-edit').addEventListener('click', () => {
-      window.open = 03_editor.html;
+      window.location.href = EDITOR_FILE;
     });
   </script>
 </body>
